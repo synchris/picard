@@ -58,4 +58,8 @@ public class ThreadPoolExecutorWithExceptions extends ThreadPoolExecutor {
             throw new PicardException("Uncaught exception in thread: " + t1.getName() + " : " + e.getMessage(), e);
         });
     }
+
+    public boolean hasError() {
+        return exception != null;
+    }
 }

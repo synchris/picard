@@ -146,7 +146,7 @@ public class NewIlluminaBasecallsConverter<CLUSTER_OUTPUT_RECORD> extends Baseca
     @Override
     public void doTileProcessing() {
 
-        final ThreadPoolExecutor completedWorkExecutor = new ThreadPoolExecutorWithExceptions(1);
+        final ThreadPoolExecutorWithExceptions completedWorkExecutor = new ThreadPoolExecutorWithExceptions(1);
 
         final CompletedWorkChecker workChecker = new CompletedWorkChecker();
         completedWorkExecutor.submit(workChecker);
@@ -164,7 +164,8 @@ public class NewIlluminaBasecallsConverter<CLUSTER_OUTPUT_RECORD> extends Baseca
         ThreadPoolExecutorUtil.awaitThreadPoolTermination("Reading executor", tileProcessingExecutor, Duration.ofMinutes(5));
 
         // if there was an exception reading then initiate an immediate shutdown.
-        if (tileProcessingExecutor.exception != null) {
+        if (tileProcessingExecutor.hasError() || completedWorkExecutor.hasError() ||
+                barcodeWriterThreads.values().stream().anyMatch(ThreadPoolExecutorWithExceptions::hasError)) {
             int tasksStillRunning = completedWorkExecutor.shutdownNow().size();
             tasksStillRunning += barcodeWriterThreads.values().stream().mapToLong(executor -> executor.shutdownNow().size()).sum();
             throw new PicardException("Reading executor had exceptions. There were " + tasksStillRunning
