@@ -25,7 +25,6 @@ public class ThreadPoolExecutorWithExceptions extends ThreadPoolExecutor {
      */
     public ThreadPoolExecutorWithExceptions(final int threads) {
         super(threads, threads, 0, TimeUnit.SECONDS, new LinkedBlockingDeque<>());
-        log.info("creating an executor with " + threads + " threads");
     }
 
     @Override
