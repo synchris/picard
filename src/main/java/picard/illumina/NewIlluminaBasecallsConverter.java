@@ -161,25 +161,21 @@ public class NewIlluminaBasecallsConverter<CLUSTER_OUTPUT_RECORD> extends Baseca
 
         tileProcessingExecutor.shutdown();
 
+        //wait for all the threads to complete before checking for errors
         ThreadPoolExecutorUtil.awaitThreadPoolTermination("Reading executor", tileProcessingExecutor, Duration.ofMinutes(5));
+        ThreadPoolExecutorUtil.awaitThreadPoolTermination("Tile completion executor", completedWorkExecutor, Duration.ofMinutes(5));
 
-        // if there was an exception reading then initiate an immediate shutdown.
-        if (tileProcessingExecutor.hasError()) {
+        barcodeWriterThreads.values().forEach(ThreadPoolExecutor::shutdown);
+        barcodeWriterThreads.forEach((barcode, executor) -> ThreadPoolExecutorUtil.awaitThreadPoolTermination(barcode + " writer", executor, Duration.ofMinutes(5)));
+
+
+        if (tileProcessingExecutor.hasError() ||
+                completedWorkExecutor.hasError() ||
+                barcodeWriterThreads.values().stream().anyMatch(ThreadPoolExecutorWithExceptions::hasError)) {
             int tasksStillRunning = completedWorkExecutor.shutdownNow().size();
             tasksStillRunning += barcodeWriterThreads.values().stream().mapToLong(executor -> executor.shutdownNow().size()).sum();
-            throw new PicardException("Reading executor had exceptions. There were " + tasksStillRunning
-                    + " tasks were still running or queued and have been cancelled.", tileProcessingExecutor.exception);
-        // else wait for all threads to finish before checking for errors
-        } else {
-            ThreadPoolExecutorUtil.awaitThreadPoolTermination("Tile completion executor", completedWorkExecutor, Duration.ofMinutes(5));
-            if (completedWorkExecutor.hasError()){
-                throw new PicardException("Completed work executor had exceptions.", completedWorkExecutor.exception);
-            } else if (barcodeWriterThreads.values().stream().anyMatch(ThreadPoolExecutorWithExceptions::hasError)) {
-                throw new PicardException("Exception(s) in at least one barcode write thread.", barcodeWriterThreads.values().stream().filter(ThreadPoolExecutorWithExceptions::hasError).findFirst().get().exception);
-            } else {
-                barcodeWriterThreads.values().forEach(ThreadPoolExecutor::shutdown);
-                barcodeWriterThreads.forEach((barcode, executor) -> ThreadPoolExecutorUtil.awaitThreadPoolTermination(barcode + " writer", executor, Duration.ofMinutes(5)));
-            }
+            throw new PicardException("Exceptions in tile processing. There were " + tasksStillRunning
+                    + " tasks were still running or queued and have been cancelled.");
         }
     }
 
