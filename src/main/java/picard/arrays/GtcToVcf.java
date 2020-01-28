@@ -32,7 +32,6 @@ import picard.arrays.illumina.IlluminaManifestRecord;
 import picard.arrays.illumina.InfiniumEGTFile;
 import picard.arrays.illumina.InfiniumGTCFile;
 import picard.arrays.illumina.InfiniumGTCRecord;
-import picard.arrays.illumina.InfiniumNormalizationManifest;
 import picard.arrays.illumina.InfiniumVcfFields;
 import picard.pedigree.Sex;
 import htsjdk.samtools.SAMSequenceDictionary;
@@ -97,7 +96,6 @@ import java.util.Set;
 @DocumentedFeature
 public class GtcToVcf extends CommandLineProgram {
 
-
     static final String USAGE_DETAILS =
             "GtcToVcf takes an Illumina GTC file and converts it to a VCF file using several supporting files. " +
                     "A GTC file is an Illumina-specific file containing called genotypes in AA/AB/BB format. " +
@@ -131,8 +129,8 @@ public class GtcToVcf extends CommandLineProgram {
     @Argument(shortName = "CF", doc = "An Illumina cluster file (egt)")
     public File CLUSTER_FILE;
 
-    @Argument(shortName = "NORM_MANIFEST", doc = "An Illumina bead pool manifest (a manifest containing the Illumina normalization ids) (bpm.csv)")
-    public File ILLUMINA_NORMALIZATION_MANIFEST;
+    @Argument(shortName = "BPM", doc = "The Illumina Bead Pool Manifest (.bpm) file")
+    public File BPM_FILE;
 
     @Argument(shortName = "E_GENDER", doc = "The expected gender for this sample.", optional = true)
     public String EXPECTED_GENDER;
@@ -210,6 +208,7 @@ public class GtcToVcf extends CommandLineProgram {
 
         IOUtil.assertFileIsReadable(INPUT);
         IOUtil.assertFileIsReadable(EXTENDED_ILLUMINA_MANIFEST);
+        IOUtil.assertFileIsReadable(BPM_FILE);
         IOUtil.assertFileIsWritable(OUTPUT);
         refSeq = ReferenceSequenceFileFactory.getReferenceSequenceFile(REFERENCE_SEQUENCE);
         final SAMSequenceDictionary sequenceDictionary = refSeq.getSequenceDictionary();
@@ -230,16 +229,15 @@ public class GtcToVcf extends CommandLineProgram {
 
     private Build37ExtendedIlluminaManifest setupAndGetManifest() {
         fingerprintGender = getFingerprintSex(FINGERPRINT_GENOTYPES_VCF_FILE);
-        final InfiniumNormalizationManifest infiniumNormalizationManifest = new InfiniumNormalizationManifest(ILLUMINA_NORMALIZATION_MANIFEST);
         try (final DataInputStream gtcInputStream = new DataInputStream(new FileInputStream(INPUT))) {
 
             infiniumEGTFile = new InfiniumEGTFile(CLUSTER_FILE);
-            infiniumGTCFile = new InfiniumGTCFile(gtcInputStream, infiniumNormalizationManifest);
+            infiniumGTCFile = new InfiniumGTCFile(gtcInputStream, BPM_FILE);
             final Build37ExtendedIlluminaManifest manifest = new Build37ExtendedIlluminaManifest(EXTENDED_ILLUMINA_MANIFEST);
 
             if (GENDER_GTC != null) {
                 try (DataInputStream genderGtcStream = new DataInputStream(new FileInputStream(GENDER_GTC))) {
-                    gtcGender = new InfiniumGTCFile(genderGtcStream, infiniumNormalizationManifest).getGender();
+                    gtcGender = new InfiniumGTCFile(genderGtcStream, BPM_FILE).getGender();
                 }
             }
 
