@@ -42,7 +42,7 @@ public class CompareGtcFiles extends CommandLineProgram {
                     "      ILLUMINA_NORMALIZATION_MANIFEST=chip_name.bpm.csv \\<br />" +
                     "</pre>";
 
-    private static Log log = Log.getInstance(CompareGtcFiles.class);
+    private static final Log log = Log.getInstance(CompareGtcFiles.class);
 
     @Argument(shortName = StandardOptionDefinitions.INPUT_SHORT_NAME,
             doc = "GTC input files to compare.",
@@ -53,18 +53,18 @@ public class CompareGtcFiles extends CommandLineProgram {
     @Argument(shortName = "NORM_MANIFEST", doc = "An Illumina bead pool manifest (a manifest containing the Illumina normalization ids) (bpm.csv)")
     public File ILLUMINA_NORMALIZATION_MANIFEST;
 
-    private List<String> errors = new ArrayList<>();
+    private final List<String> errors = new ArrayList<>();
 
-    //ignored methods
+    // Ignored methods
     private static final List<String> IGNORED_METHODS = new ArrayList<>();
 
     static {
         IGNORED_METHODS.add("getClass");
         IGNORED_METHODS.add("getAutoCallDate");
         IGNORED_METHODS.add("getImagingDate");
-        //This is the number of TOC entries. It will be different with different versions.
+        // This is the number of TOC entries. It will be different with different versions.
         IGNORED_METHODS.add("getNumberOfEntries");
-        //We don't inject these in our gtcs so they will always be blank and so we don't bother comparing.
+        // We don't inject these in our gtcs so they will always be blank and so we don't bother comparing.
         IGNORED_METHODS.add("getSampleName");
         IGNORED_METHODS.add("getSamplePlate");
         IGNORED_METHODS.add("getSampleWell");
@@ -81,7 +81,7 @@ public class CompareGtcFiles extends CommandLineProgram {
             InfiniumGTCFile gtcFileTwo = new InfiniumGTCFile(new DataInputStream(new FileInputStream(INPUT.get(1))), infiniumNormalizationManifest);
             compareGTCFiles(gtcFileOne, gtcFileTwo);
 
-            //report errors and exit 1 if any are detected.
+            // Report errors and exit 1 if any are detected.
             if (!errors.isEmpty()) {
                 for (String error : errors) {
                     log.error(error);
@@ -95,18 +95,18 @@ public class CompareGtcFiles extends CommandLineProgram {
     }
 
     private void compareGTCFiles(InfiniumGTCFile gtcFileOne, InfiniumGTCFile gtcFileTwo) throws InvocationTargetException, IllegalAccessException {
-        //compare all fields we expect won't change.
+        // Compare all fields we expect won't change.
         Method[] methods = gtcFileOne.getClass().getMethods();
         for (Method method : methods) {
-            //skip ignored methods.
+            // Skip ignored methods.
             if (IGNORED_METHODS.contains(method.getName())) {
                 continue;
             }
-            //compare all getters
+            // Compare all getters
             if (method.getName().startsWith("get") && method.getGenericParameterTypes().length == 0) {
-                //if we have a version and they don't match we just want a warning
-                //if getter returns an array compare all array values otherwise do an Object compare.
-                //if getter returns an array of arrays do deep compare
+                // If we have a version and they don't match we just want a warning
+                // If getter returns an array compare all array values otherwise do an Object compare.
+                // If getter returns an array of arrays do deep compare
                 if (method.getName().equals("getFileVersion")) {
                     compareVersions(method.invoke(gtcFileOne), method.invoke(gtcFileTwo));
                 } else if (method.getReturnType().isArray() && method.getReturnType().getComponentType().isArray()) {
@@ -130,40 +130,40 @@ public class CompareGtcFiles extends CommandLineProgram {
         }
     }
 
-    private void compare(Object objectOne, Object objectTwo, String type) {
-        if (checkNulls(objectOne, objectTwo, type)) return;
+    private void compare(Object objectOne, Object objectTwo, String methodName) {
+        if (checkNulls(objectOne, objectTwo, methodName)) return;
 
         List<String> compareErrors = new ArrayList<>();
 
         if (!objectOne.equals(objectTwo)) {
             compareErrors.add(String.format("%s does not match ( %s vs %s )",
-                    type, objectOne, objectTwo));
+                    methodName, objectOne, objectTwo));
         }
-        checkErrors(type, compareErrors);
+        checkErrors(methodName, compareErrors);
     }
 
-    private void compareArrays(Object arrayOne, Object arrayTwo, String type) {
-        if (checkNulls(arrayOne, arrayTwo, type)) return;
+    private void compareArrays(Object arrayOne, Object arrayTwo, String methodName) {
+        if (checkNulls(arrayOne, arrayTwo, methodName)) return;
 
         List<String> compareErrors = new ArrayList<>();
-        int differences = arrayDifferences(arrayOne, arrayTwo, type, compareErrors);
+        int differences = arrayDifferences(arrayOne, arrayTwo, methodName, compareErrors);
         if (differences > 0) {
-            compareErrors.add(String.format("%s do not match. %d elements of the array differ.", type, differences));
+            compareErrors.add(String.format("%s do not match. %d elements of the array differ.", methodName, differences));
         }
-        checkErrors(type, compareErrors);
+        checkErrors(methodName, compareErrors);
     }
 
-    private int arrayDifferences(Object arrayOne, Object arrayTwo, String type, List<String> compareErrors) {
+    private int arrayDifferences(Object arrayOne, Object arrayTwo, String methodName, List<String> compareErrors) {
         int length1 = Array.getLength(arrayOne);
         int length2 = Array.getLength(arrayTwo);
 
         int diffCount = 0;
         if (length1 != length2) {
             compareErrors.add(String.format("%s do not match. Arrays of different lengths. ( %d vs %d )",
-                    type, length1, length2));
+                    methodName, length1, length2));
         } else {
             for (int i = 0; i < length1; i++) {
-                //for floats only compare 3 decimal places
+                // For floats only compare 3 decimal places
                 if (arrayOne.getClass().getComponentType() == float.class) {
                     Float float1 = (float) Array.get(arrayOne, i);
                     Float float2 = (float) Array.get(arrayTwo, i);
@@ -185,49 +185,53 @@ public class CompareGtcFiles extends CommandLineProgram {
     }
 
 
-    private void compareArrayOfArrays(Object arrayOfArraysOne, Object arrayOfArraysTwo, String type) {
+    private void compareArrayOfArrays(Object arrayOfArraysOne, Object arrayOfArraysTwo, String methodName) {
         List<String> compareErrors = new ArrayList<>();
 
-        if (checkNulls(arrayOfArraysOne, arrayOfArraysTwo, type)) return;
+        if (checkNulls(arrayOfArraysOne, arrayOfArraysTwo, methodName)) return;
 
         int differences = 0;
         int length1 = Array.getLength(arrayOfArraysOne);
         int length2 = Array.getLength(arrayOfArraysTwo);
         if (length1 != length2) {
             compareErrors.add(String.format("%s do not match. Arrays of different lengths. ( %d vs %d )",
-                    type, length1, length2));
+                    methodName, length1, length2));
         } else {
-            //iterate over the first array
+            // Iterate over the first array
             for (int i = 0; i < length1; i++) {
-                //iterate over the second array
+                // Iterate over the second array
                 Object innerArrayOne = Array.get(arrayOfArraysOne, i);
                 Object innerArrayTwo = Array.get(arrayOfArraysTwo, i);
-                differences += arrayDifferences(innerArrayOne, innerArrayTwo, type, compareErrors);
+                differences += arrayDifferences(innerArrayOne, innerArrayTwo, methodName, compareErrors);
             }
             if (differences > 0) {
-                compareErrors.add(String.format("%s do not match. %d elements of the array differ.", type, differences));
+                compareErrors.add(String.format("%s do not match. %d elements of the array differ.", methodName, differences));
             }
         }
-        checkErrors(type, compareErrors);
+        checkErrors(methodName, compareErrors);
     }
 
-    private void checkErrors(String type, List<String> compareErrors) {
+    private void checkErrors(String methodName, List<String> compareErrors) {
         if (compareErrors.size() > 0) {
             errors.addAll(compareErrors);
         } else {
-            log.info(type + " IDENTICAL");
+            log.info(methodName + " IDENTICAL");
         }
     }
 
-    private boolean checkNulls(Object arrayOne, Object arrayTwo, String type) {
-        //if one is null we assume a version mismatch
-        if (arrayOne == null || arrayTwo == null) {
-            log.warn(String.format("Field %s is not in both files. Version mismatch likely", type));
+    private boolean checkNulls(Object objectOne, Object objectTwo, String methodName) {
+        if (objectOne == null && objectTwo == null) {
+            log.warn(String.format("Field %s is missing from both files.  Strange.", methodName));
             return true;
         }
-        //if they are primitives check for 0 instead of null
-        if ((arrayOne.equals(0) ^ arrayTwo.equals(0)) || (arrayOne.equals(0.0f) ^ arrayTwo.equals(0.0f))) {
-            log.warn(String.format("Field %s is not in both files. Version mismatch likely", type));
+        // If one is null we assume a version mismatch
+        if (objectOne == null || objectTwo == null) {
+            log.warn(String.format("Field %s is missing from one of the files. Version mismatch likely", methodName));
+            return true;
+        }
+        // If they are primitives check for 0 instead of null
+        if ((objectOne.equals(0) ^ objectTwo.equals(0)) || (objectOne.equals(0.0f) ^ objectTwo.equals(0.0f))) {
+            log.warn(String.format("Field %s is not in both files. Version mismatch likely", methodName));
             return true;
         }
         return false;
