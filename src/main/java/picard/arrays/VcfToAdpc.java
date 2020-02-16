@@ -31,6 +31,7 @@ import htsjdk.variant.variantcontext.Allele;
 import htsjdk.variant.variantcontext.Genotype;
 import htsjdk.variant.variantcontext.VariantContext;
 import htsjdk.variant.vcf.VCFFileReader;
+import htsjdk.variant.vcf.VCFHeader;
 import org.apache.commons.lang.StringUtils;
 import org.broadinstitute.barclay.argparser.Argument;
 import org.broadinstitute.barclay.argparser.CommandLineProgramProperties;
@@ -73,44 +74,64 @@ public class VcfToAdpc extends CommandLineProgram {
 
     private final Log log = Log.getInstance(VcfToAdpc.class);
 
-    @Argument(doc = "The Input VCF")
-    public File VCF;
+    @Argument(doc = "One or more VCF files containing array intensity data.")
+    public List<File> VCF;
 
     @Argument(shortName = StandardOptionDefinitions.OUTPUT_SHORT_NAME, doc = "The output (adpc.bin) file to write.")
     public File OUTPUT;
 
     @Override
     protected int doWork() {
-        IOUtil.assertFileIsReadable(VCF);
+        final List<File> inputs = IOUtil.unrollFiles(VCF, IOUtil.VCF_EXTENSIONS);
+        for (final File f : inputs) IOUtil.assertFileIsReadable(f);
+        // TODO - if you want to bop around in the output file, you're going to need to count all the samples
+        // ahead of time.
+        // And fix the unsigned int bullshit
         IOUtil.assertFileIsWritable(OUTPUT);
-        VCFFileReader vcfFileReader = new VCFFileReader(VCF, false);
+        int overallSampleCount = 0;
+        Integer expectedNumberOfVariants = null;
+        try (IlluminaAdpcFileWriter adpcFileWriter = new IlluminaAdpcFileWriter(OUTPUT)) {
+            for (final File inputVcf : inputs) {
+                VCFFileReader vcfFileReader = new VCFFileReader(inputVcf, false);
+                final VCFHeader header = vcfFileReader.getFileHeader();
+                for (int sampleNumber = 0; sampleNumber < header.getNGenotypeSamples(); sampleNumber++) {
+                    System.out.println("Sample '" + header.getGenotypeSamples().get(sampleNumber) + "' is at index " + overallSampleCount + " in " + OUTPUT.getAbsolutePath());
+                    // TODO - reading the file repeatedly here.  Not good..
+                    CloseableIterator<VariantContext> variants = vcfFileReader.iterator();
+                    final List<IlluminaAdpcFileWriter.Record> adpcRecordList = new ArrayList<>();
+                    int numVariants = 0;
+                    while (variants.hasNext()) {
+                        numVariants++;
+                        final VariantContext context = variants.next();
+                        final float gcScore = getFloatAttribute(context, InfiniumVcfFields.GC_SCORE);
 
-        try (CloseableIterator<VariantContext> variants = vcfFileReader.iterator();
-             IlluminaAdpcFileWriter adpcFileWriter = new IlluminaAdpcFileWriter(OUTPUT)) {
+                        final Genotype genotype = context.getGenotype(sampleNumber);
+                        final IlluminaGenotype illuminaGenotype = getIlluminaGenotype(genotype, context);
 
-            final List<IlluminaAdpcFileWriter.Record> adpcRecordList = new ArrayList<>();
-            while (variants.hasNext()) {
-                final VariantContext context = variants.next();
-                final float gcScore = getFloatAttribute(context, InfiniumVcfFields.GC_SCORE);
+                        final short rawXIntensity = getShortAttribute(genotype, InfiniumVcfFields.X);
+                        final short rawYIntensity = getShortAttribute(genotype, InfiniumVcfFields.Y);
 
-                for (final Genotype genotype : context.getGenotypes()) {
-                    final IlluminaGenotype illuminaGenotype = getIlluminaGenotype(genotype, context);
-
-                    final short rawXIntensity = getShortAttribute(genotype, InfiniumVcfFields.X);
-                    final short rawYIntensity = getShortAttribute(genotype, InfiniumVcfFields.Y);
-
-                    final Float normalizedXIntensity = getFloatAttribute(genotype, InfiniumVcfFields.NORMX);
-                    final Float normalizedYIntensity = getFloatAttribute(genotype, InfiniumVcfFields.NORMY);
-                    if ((normalizedXIntensity != null) && (normalizedYIntensity != null)) {
-                        final IlluminaAdpcFileWriter.Record record = new IlluminaAdpcFileWriter.Record(rawXIntensity, rawYIntensity, normalizedXIntensity, normalizedYIntensity, gcScore, illuminaGenotype);
-                        adpcRecordList.add(record);
+                        final Float normalizedXIntensity = getFloatAttribute(genotype, InfiniumVcfFields.NORMX);
+                        final Float normalizedYIntensity = getFloatAttribute(genotype, InfiniumVcfFields.NORMY);
+                        if ((normalizedXIntensity != null) && (normalizedYIntensity != null)) {
+                            final IlluminaAdpcFileWriter.Record record = new IlluminaAdpcFileWriter.Record(rawXIntensity, rawYIntensity, normalizedXIntensity, normalizedYIntensity, gcScore, illuminaGenotype);
+                            adpcRecordList.add(record);
+                        }
                     }
+                    if (expectedNumberOfVariants == null) {
+                        expectedNumberOfVariants = numVariants;
+                    } else {
+                        if (numVariants != expectedNumberOfVariants) {
+                            throw new PicardException("VCFs have differing number of loci");
+                        }
+                    }
+                    if (adpcRecordList.isEmpty()) {
+                        throw new PicardException("No valid records found in VCF!");
+                    }
+                    adpcFileWriter.write(adpcRecordList);
+                    overallSampleCount++;
                 }
             }
-            if (adpcRecordList.isEmpty()) {
-                throw new PicardException("No valid records found in VCF!");
-            }
-            adpcFileWriter.write(adpcRecordList);
         } catch (Exception e) {
             log.error(e);
             return 1;
