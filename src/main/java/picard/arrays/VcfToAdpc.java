@@ -87,6 +87,8 @@ public class VcfToAdpc extends CommandLineProgram {
         // TODO - if you want to bop around in the output file, you're going to need to count all the samples
         // ahead of time.
         // And fix the unsigned int bullshit
+        // TODO - output the samples. In order.  To a file for use later.
+        // TODO - output the number of markers.  Probably just a number (rather than a list of them).
         IOUtil.assertFileIsWritable(OUTPUT);
         int overallSampleCount = 0;
         Integer expectedNumberOfVariants = null;
@@ -108,8 +110,8 @@ public class VcfToAdpc extends CommandLineProgram {
                         final Genotype genotype = context.getGenotype(sampleNumber);
                         final IlluminaGenotype illuminaGenotype = getIlluminaGenotype(genotype, context);
 
-                        final short rawXIntensity = getShortAttribute(genotype, InfiniumVcfFields.X);
-                        final short rawYIntensity = getShortAttribute(genotype, InfiniumVcfFields.Y);
+                        final int rawXIntensity = getUnsignedShortAttributeAsInt(genotype, InfiniumVcfFields.X);
+                        final int rawYIntensity = getUnsignedShortAttributeAsInt(genotype, InfiniumVcfFields.Y);
 
                         final Float normalizedXIntensity = getFloatAttribute(genotype, InfiniumVcfFields.NORMX);
                         final Float normalizedYIntensity = getFloatAttribute(genotype, InfiniumVcfFields.NORMY);
@@ -178,16 +180,16 @@ public class VcfToAdpc extends CommandLineProgram {
         return illuminaGenotype;
     }
 
-    private short getShortAttribute(final Genotype genotype, final String key) {
+    private int getUnsignedShortAttributeAsInt(final Genotype genotype, final String key) {
         final int attributeAsInt = Integer.parseInt(getRequiredAttribute(genotype, key).toString());
-        final short returnedAttribute;
-        if (attributeAsInt <= Short.MAX_VALUE) {
-            returnedAttribute = (short) attributeAsInt;
-        } else {
-            log.warn("Value for key " + key + " (" + attributeAsInt + ") is > " + Short.MAX_VALUE + " (truncating it)");
-            returnedAttribute = Short.MAX_VALUE;
+        if (attributeAsInt < 0) {
+            throw new PicardException("Value for key " + key + " (" + attributeAsInt + ") is <= 0!  Invalid value for unsigned int");
         }
-        return returnedAttribute;
+        if (attributeAsInt > picard.arrays.illumina.InfiniumDataFile.MAX_UNSIGNED_SHORT) {
+            log.warn("Value for key " + key + " (" + attributeAsInt + ") is > " + picard.arrays.illumina.InfiniumDataFile.MAX_UNSIGNED_SHORT + " (truncating it)");
+            return picard.arrays.illumina.InfiniumDataFile.MAX_UNSIGNED_SHORT;
+        }
+        return attributeAsInt;
     }
 
     private Float getFloatAttribute(final Genotype genotype, final String key) {
