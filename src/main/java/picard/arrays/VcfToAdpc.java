@@ -43,7 +43,12 @@ import picard.arrays.illumina.InfiniumVcfFields;
 import picard.cmdline.CommandLineProgram;
 import picard.cmdline.StandardOptionDefinitions;
 
+import java.io.BufferedWriter;
 import java.io.File;
+import java.io.FileOutputStream;
+import java.io.IOException;
+import java.io.OutputStreamWriter;
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -63,12 +68,15 @@ public class VcfToAdpc extends CommandLineProgram {
                     "An adpc.bin file is a binary file containing genotyping array intensity data that can be exported " +
                     "by Illumina's GenomeStudio and Beadstudio analysis tools. The adpc.bin file is used as an input to " +
                     "<a href='https://genome.sph.umich.edu/wiki/VerifyIDintensity'>VerifyIDintensity</a> a tool for " +
-                    "detecting and estimating sample contamination of Illumina genotyping array data." +
+                    "detecting and estimating sample contamination of Illumina genotyping array data. " +
+                    "If more than one VCF is used, they must all have the same number of loci." +
                     "<h4>Usage example:</h4>" +
                     "<pre>" +
                     "java -jar picard.jar VcfToAdpc \\<br />" +
                     "      VCF=input.vcf \\<br />" +
-                    "      OUTPUT=output.adpc.bin" +
+                    "      OUTPUT=output.adpc.bin \\<br />" +
+                    "      SAMPLES_FILE=output.samples.txt \\<br />" +
+                    "      NUM_MARKERS_FILE=output.num_markers.txt \\<br />" +
                     "</pre>";
 
 
@@ -80,16 +88,23 @@ public class VcfToAdpc extends CommandLineProgram {
     @Argument(shortName = StandardOptionDefinitions.OUTPUT_SHORT_NAME, doc = "The output (adpc.bin) file to write.")
     public File OUTPUT;
 
+    @Argument(shortName = "SF", doc = "A text file into which the names of the samples will be written. " +
+            "These will be in the same order as the data in the adpc.bin file.")
+    public File SAMPLES_FILE;
+
+    @Argument(shortName = "NMF", doc = "A text file into which the number of loci in the VCF will be written. " +
+            "This is useful for calling verifyIDIntensity.")
+    public File NUM_MARKERS_FILE;
+
     @Override
     protected int doWork() {
         final List<File> inputs = IOUtil.unrollFiles(VCF, IOUtil.VCF_EXTENSIONS);
         for (final File f : inputs) IOUtil.assertFileIsReadable(f);
+        IOUtil.assertFileIsWritable(SAMPLES_FILE);
         // TODO - if you want to bop around in the output file, you're going to need to count all the samples
         // ahead of time.
-        // And fix the unsigned int bullshit
-        // TODO - output the samples. In order.  To a file for use later.
-        // TODO - output the number of markers.  Probably just a number (rather than a list of them).
         IOUtil.assertFileIsWritable(OUTPUT);
+        List<String> sampleNames = new ArrayList<>();
         int overallSampleCount = 0;
         Integer expectedNumberOfVariants = null;
         try (IlluminaAdpcFileWriter adpcFileWriter = new IlluminaAdpcFileWriter(OUTPUT)) {
@@ -97,7 +112,9 @@ public class VcfToAdpc extends CommandLineProgram {
                 VCFFileReader vcfFileReader = new VCFFileReader(inputVcf, false);
                 final VCFHeader header = vcfFileReader.getFileHeader();
                 for (int sampleNumber = 0; sampleNumber < header.getNGenotypeSamples(); sampleNumber++) {
-                    System.out.println("Sample '" + header.getGenotypeSamples().get(sampleNumber) + "' is at index " + overallSampleCount + " in " + OUTPUT.getAbsolutePath());
+                    final String sampleName = header.getGenotypeSamples().get(sampleNumber);
+                    sampleNames.add(sampleName);
+                    log.info("Processing sample: " + sampleName + " from VCF: " + inputVcf.getAbsolutePath());
                     // TODO - reading the file repeatedly here.  Not good..
                     CloseableIterator<VariantContext> variants = vcfFileReader.iterator();
                     final List<IlluminaAdpcFileWriter.Record> adpcRecordList = new ArrayList<>();
@@ -134,6 +151,8 @@ public class VcfToAdpc extends CommandLineProgram {
                     overallSampleCount++;
                 }
             }
+            writeTextToFile(SAMPLES_FILE, StringUtils.join(sampleNames, "\n"));
+            writeTextToFile(NUM_MARKERS_FILE, "" + expectedNumberOfVariants);
         } catch (Exception e) {
             log.error(e);
             return 1;
@@ -141,6 +160,14 @@ public class VcfToAdpc extends CommandLineProgram {
 
         return 0;
     }
+
+    private void writeTextToFile(final File output, final String text) throws IOException {
+        try (BufferedWriter writer = new BufferedWriter(new OutputStreamWriter(
+                new FileOutputStream(output), StandardCharsets.UTF_8))) {
+            writer.write(text);
+        }
+    }
+
 
     private IlluminaGenotype getIlluminaGenotype(final Genotype genotype, final VariantContext context) {
         final IlluminaGenotype illuminaGenotype;
