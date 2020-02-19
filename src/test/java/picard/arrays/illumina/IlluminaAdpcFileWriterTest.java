@@ -11,7 +11,7 @@ import java.util.List;
 public class IlluminaAdpcFileWriterTest {
 
     private static final File TEST_DATA_DIR = new File("testdata/picard/arrays/illumina");
-    private static final File TEST_EXPECTED_ADPC_BIN_FILE = new File(TEST_DATA_DIR, "TestIlluminaAdpcFileWriter.adpc.bin");
+    private static final File TEST_EXPECTED_ADPC_BIN_FILE = new File(TEST_DATA_DIR, "TestVcfToAdpc.adpc.bin");
 
     @Test
     public void testWriteIlluminaAdpcFile() throws Exception {
